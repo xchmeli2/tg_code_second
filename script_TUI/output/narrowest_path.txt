@@ -1,0 +1,5 @@
+Uzly cesty:
+A -> K
+Hrany:
+A -- K
+Celková vzdálenost: 23.0

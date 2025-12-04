@@ -1,0 +1,8 @@
+u A;
+u B;
+u C;
+u D;
+h A - B;
+h A - C;
+h C - D;
+h D - B;

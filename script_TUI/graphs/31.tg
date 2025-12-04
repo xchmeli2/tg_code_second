@@ -1,0 +1,12 @@
+u s;
+u A;
+u C;
+u t;
+u B;
+h s > A 20;
+h s > B 10;
+h A > B 18;
+h A > t 8;
+h B > t 3;
+h B > C 12;
+h C > t 10;

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vizualizace BST Stromu (Zoom & Pan)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #canvas-container {
+            overflow: hidden; /* Změna na hidden pro vlastní pan/zoom */
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: grab;
+            position: relative;
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+        .node-highlight {
+            fill: #f59e0b !important; /* Amber 500 */
+            stroke: #b45309 !important; /* Amber 700 */
+            transition: fill 0.3s, stroke 0.3s;
+        }
+        .node-found {
+            fill: #22c55e !important; /* Green 500 */
+            stroke: #15803d !important; 
+            transform: scale(1.1);
+            transform-box: fill-box;
+            transform-origin: center;
+        }
+        .node-visited {
+            fill: #a5b4fc !important; /* Indigo 300 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 min-h-screen flex flex-col">
+
+    <header class="mb-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded shadow-sm border border-gray-200">
+        <div>
+            <h1 class="text-2xl font-bold text-blue-700">Interaktivní Vizualizace BST</h1>
+            <p class="text-xs text-gray-600 mt-1">
+                Podporuje: Zoom/Posun myší, Kliknutí na uzel, Animace hledání a BST operace.
+            </p>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="resetView()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded text-sm transition">
+                Centrovat pohled
+            </button>
+            <button onclick="rebuildAsBST()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded text-sm shadow transition">
+                ⚡ Přeskládat na BST
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-col lg:flex-row gap-6 relative">
+        
+        <!-- Levý sloupec: Ovládání -->
+        <div class="w-full lg:w-1/3 flex flex-col gap-6">
+            
+            <!-- 1. Editor -->
+            <div class="bg-white p-4 rounded shadow border border-gray-200">
+                <label for="inputData" class="block font-bold text-gray-700 mb-2 border-b pb-2 flex justify-between">
+                    <span>1. Data (Level-order)</span>
+                    <span class="text-xs font-normal text-gray-400">Editovatelné</span>
+                </label>
+                <textarea id="inputData" class="w-full h-32 p-3 border rounded font-mono text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50" spellcheck="false" oninput="drawTree()">
+u Root 50;
+u L 30;
+u R 70;
+u LL 20;
+u LR 40;
+u RL 60;
+u RR 80;</textarea>
+                <div id="errorMsg" class="text-red-500 text-xs min-h-[20px] mt-2 font-semibold"></div>
+            </div>
+
+            <!-- 2. Hledání a Průchody -->
+            <div class="bg-white p-4 rounded shadow border border-gray-200">
+                <h3 class="block font-bold text-gray-700 mb-2 border-b pb-2">2. Operace</h3>
+                
+                <!-- Search -->
+                <div class="mb-4 flex gap-2">
+                    <input type="number" id="searchVal" placeholder="Hledat hodnotu..." class="border p-2 text-sm rounded flex-grow focus:ring-1 focus:ring-purple-500">
+                    <button onclick="searchBSTUI()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded text-sm transition shadow-sm">
+                        Hledat
+                    </button>
+                </div>
+
+                <!-- Traversals -->
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <button onclick="runTraversal('pre')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 py-1 px-2 rounded text-xs font-medium transition">PreOrder</button>
+                    <button onclick="runTraversal('in')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 py-1 px-2 rounded text-xs font-medium transition">InOrder</button>
+                    <button onclick="runTraversal('post')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 py-1 px-2 rounded text-xs font-medium transition">PostOrder</button>
+                    <button onclick="runTraversal('level')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-1 px-2 rounded text-xs font-medium transition">Level Order</button>
+                </div>
+                <div id="traversalResult" class="text-xs font-mono text-gray-500 italic mt-2 min-h-[20px]"></div>
+            </div>
+
+            <!-- 3. Úpravy -->
+            <div class="bg-white p-4 rounded shadow border border-gray-200">
+                <h3 class="block font-bold text-gray-700 mb-3 border-b pb-2">3. Úpravy Stromu</h3>
+                
+                <!-- Add Node -->
+                <div class="mb-4 bg-blue-50 p-3 rounded border border-blue-100">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-sm font-bold text-blue-800">Přidat uzel</label>
+                        <div class="flex items-center gap-1">
+                            <input type="checkbox" id="bstMode" checked class="w-3 h-3" onchange="toggleAddMode()">
+                            <label for="bstMode" class="text-xs text-blue-800">Auto-BST</label>
+                        </div>
+                    </div>
+
+                    <div id="manualControls" class="hidden grid grid-cols-2 gap-2 mb-2">
+                        <input type="text" id="parentID" placeholder="Rodič ID" class="border p-1 text-sm rounded">
+                        <select id="childDir" class="border p-1 text-sm rounded bg-white">
+                            <option value="left">Vlevo</option>
+                            <option value="right">Vpravo</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                        <input type="text" id="newID" placeholder="ID" class="border p-1 text-sm rounded">
+                        <input type="number" id="newVal" placeholder="Hodnota" class="border p-1 text-sm rounded">
+                    </div>
+                    <button onclick="handleAddNode()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 rounded text-sm transition">Vložit</button>
+                </div>
+
+                <!-- Delete Node -->
+                <div class="bg-red-50 p-3 rounded border border-red-100">
+                    <label class="block text-sm font-bold text-red-800 mb-2">Odstranit uzel</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="deleteID" placeholder="Klikni na uzel..." class="border p-2 text-sm rounded flex-grow focus:ring-1 focus:ring-red-500">
+                        <button onclick="deleteNodeUI()" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded text-sm transition shadow-sm">Smazat</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pravý sloupec: Vizualizace -->
+        <div class="w-full lg:w-2/3">
+            <div class="sticky top-4">
+                <div class="bg-white p-2 rounded-t shadow-sm border border-gray-200 border-b-0 flex justify-between items-center">
+                    <span class="font-bold text-gray-700 px-2">Plátno</span>
+                    <span class="text-xs text-gray-400">Kolečko: Zoom | Tažení: Posun</span>
+                </div>
+                <div id="canvas-container" class="shadow-md bg-white min-h-[600px] lg:h-[calc(100vh-100px)]">
+                    <svg id="treeSvg" width="100%" height="100%" onmousedown="startPan(event)">
+                        <g id="treeGroup"></g> <!-- Group for Zoom/Pan transform -->
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentNodes = []; 
+        
+        // --- ZOOM & PAN VARIABLES ---
+        let panX = 0, panY = 0;
+        let scale = 1;
+        let isPanning = false;
+        let startX = 0, startY = 0;
+
+        // --- INIT ---
+        window.onload = () => {
+            drawTree();
+            setupZoomPan();
+        };
+
+        // --- CORE PARSING & DRAWING ---
+
+        function drawTree() {
+            const input = document.getElementById('inputData').value;
+            const errorDiv = document.getElementById('errorMsg');
+            const svgGroup = document.getElementById('treeGroup');
+            
+            errorDiv.textContent = '';
+            svgGroup.innerHTML = '';
+
+            try {
+                currentNodes = parseInput(input);
+                renderTree(currentNodes, svgGroup);
+            } catch (e) {
+                errorDiv.textContent = "Chyba syntaxe: " + e.message;
+            }
+        }
+
+        function parseInput(text) {
+            const rawLines = text.split(/;|[\n\r]+/);
+            const nodes = [];
+            for (let line of rawLines) {
+                line = line.trim();
+                if (!line) continue;
+                const match = line.match(/^u\s+([^\s\[;]+)(?:\s+([^\s;]+))?/);
+                if (match) {
+                    const id = match[1];
+                    const val = match[2]; 
+                    if (id === '*') nodes.push(null);
+                    else nodes.push({ id: id, label: id, value: val });
+                }
+            }
+            return nodes;
+        }
+
+        function updateTextarea(nodes) {
+            let end = nodes.length - 1;
+            while (end >= 0 && nodes[end] === null) end--;
+            
+            let output = "";
+            for (let i = 0; i <= end; i++) {
+                const n = nodes[i];
+                if (n === null) {
+                    output += "u *;\n";
+                } else {
+                    const valStr = (n.value !== undefined && n.value !== null) ? ` ${n.value}` : "";
+                    output += `u ${n.id}${valStr};\n`;
+                }
+            }
+            document.getElementById('inputData').value = output;
+            drawTree(); 
+        }
+
+        // --- INTERACTIVITY (Zoom/Pan/Click) ---
+
+        function setupZoomPan() {
+            const container = document.getElementById('canvas-container');
+            
+            // Zoom with wheel
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomIntensity = 0.1;
+                const direction = e.deltaY > 0 ? -1 : 1;
+                const newScale = scale + (direction * zoomIntensity);
+                // Limit zoom
+                if (newScale > 0.1 && newScale < 5) {
+                    scale = newScale;
+                    updateTransform();
+                }
+            });
+
+            // Pan Logic attached to SVG in HTML (onmousedown) and window
+            window.addEventListener('mouseup', () => isPanning = false);
+            window.addEventListener('mousemove', (e) => {
+                if (!isPanning) return;
+                e.preventDefault();
+                panX += e.clientX - startX;
+                panY += e.clientY - startY;
+                startX = e.clientX;
+                startY = e.clientY;
+                updateTransform();
+            });
+        }
+
+        function startPan(e) {
+            // Only pan if clicking on background (svg), not a node
+            if(e.target.tagName !== 'svg') return;
+            isPanning = true;
+            startX = e.clientX;
+            startY = e.clientY;
+        }
+
+        function updateTransform() {
+            const g = document.getElementById('treeGroup');
+            g.setAttribute('transform', `translate(${panX}, ${panY}) scale(${scale})`);
+        }
+
+        function resetView() {
+            panX = 0;
+            panY = 0;
+            scale = 1;
+            updateTransform();
+        }
+
+        function onNodeClick(id) {
+            // Fill inputs when node is clicked
+            document.getElementById('deleteID').value = id;
+            document.getElementById('parentID').value = id;
+            
+            // Visual feedback
+            const input = document.getElementById('deleteID');
+            input.classList.add('bg-yellow-100');
+            setTimeout(() => input.classList.remove('bg-yellow-100'), 300);
+        }
+
+        // --- SEARCH ANIMATION ---
+
+        async function searchBSTUI() {
+            const val = parseFloat(document.getElementById('searchVal').value);
+            if (isNaN(val)) return;
+
+            const root = arrayToTree(currentNodes);
+            if (!root) return;
+
+            resetNodeStyles();
+            await animateSearch(root, val, 0);
+        }
+
+        async function animateSearch(node, targetVal, index) {
+            if (!node) return;
+            
+            // Highlight current node being visited
+            const circle = document.querySelector(`circle[data-index="${index}"]`);
+            if (circle) circle.classList.add('node-visited');
+            
+            await new Promise(r => setTimeout(r, 600));
+
+            const nodeVal = getNumericValue(node.data);
+
+            if (nodeVal === targetVal) {
+                if (circle) {
+                    circle.classList.remove('node-visited');
+                    circle.classList.add('node-found');
+                }
+                return;
+            }
+
+            if (targetVal < nodeVal) {
+                // Go Left
+                await animateSearch(node.left, targetVal, 2 * index + 1);
+            } else {
+                // Go Right
+                await animateSearch(node.right, targetVal, 2 * index + 2);
+            }
+        }
+
+        function resetNodeStyles() {
+            document.querySelectorAll('circle').forEach(c => {
+                c.classList.remove('node-highlight', 'node-visited', 'node-found');
+            });
+        }
+
+        // --- BST & TREE LOGIC ---
+        
+        function getNumericValue(node) {
+            if (!node) return -Infinity;
+            const val = node.value !== undefined ? parseFloat(node.value) : NaN;
+            return !isNaN(val) ? val : node.id;
+        }
+
+        function insertIntoBST(root, newNode) {
+            if (!root) return { data: newNode, left: null, right: null };
+            const valNew = getNumericValue(newNode);
+            const valRoot = getNumericValue(root.data);
+
+            if (valNew < valRoot) root.left = insertIntoBST(root.left, newNode);
+            else root.right = insertIntoBST(root.right, newNode);
+            return root;
+        }
+
+        function rebuildAsBST() {
+            const validNodes = currentNodes.filter(n => n !== null);
+            if (validNodes.length === 0) return;
+            let root = null;
+            validNodes.forEach(node => { root = insertIntoBST(root, node); });
+            updateTextarea(treeToArray(root));
+        }
+
+        function arrayToTree(nodes) {
+            if (!nodes.length) return null;
+            const nodeObjects = nodes.map(n => n ? { data: { ...n }, left: null, right: null } : null);
+            for (let i = 0; i < nodes.length; i++) {
+                if (nodeObjects[i]) {
+                    const l = 2 * i + 1;
+                    const r = 2 * i + 2;
+                    if (l < nodes.length) nodeObjects[i].left = nodeObjects[l];
+                    if (r < nodes.length) nodeObjects[i].right = nodeObjects[r];
+                }
+            }
+            return nodeObjects[0] || null;
+        }
+
+        function treeToArray(root) {
+            if (!root) return [];
+            const result = [];
+            const queue = [{node: root, index: 0}];
+            while (queue.length > 0) {
+                const {node, index} = queue.shift();
+                if (index > 4096) continue; // Safety limit
+                while (result.length <= index) result.push(null);
+                result[index] = node.data;
+                if (node.left) queue.push({node: node.left, index: 2 * index + 1});
+                if (node.right) queue.push({node: node.right, index: 2 * index + 2});
+            }
+            return result;
+        }
+
+        function deleteNodeBST(node, id) {
+            if (!node) return null;
+            if (node.data.id === id) {
+                if (!node.left && !node.right) return null;
+                if (!node.left) return node.right;
+                if (!node.right) return node.left;
+                let successor = node.right;
+                while (successor.left) successor = successor.left;
+                node.data = { ...successor.data };
+                node.right = deleteNodeBST(node.right, successor.data.id);
+                return node;
+            }
+            node.left = deleteNodeBST(node.left, id);
+            node.right = deleteNodeBST(node.right, id);
+            return node;
+        }
+
+        // --- UI HANDLERS ---
+        
+        function toggleAddMode() {
+            const isBST = document.getElementById('bstMode').checked;
+            const manual = document.getElementById('manualControls');
+            manual.classList.toggle('hidden', isBST);
+        }
+
+        function handleAddNode() {
+            const isBST = document.getElementById('bstMode').checked;
+            isBST ? addNodeBST() : addNodeManual();
+        }
+
+        function addNodeBST() {
+            const newId = document.getElementById('newID').value.trim();
+            const newVal = document.getElementById('newVal').value.trim();
+            if (!newId) return alert("Zadejte ID.");
+            if (!newVal) return alert("Pro BST zadejte hodnotu.");
+
+            const newNodeData = { id: newId, label: newId, value: newVal };
+            let root = arrayToTree(currentNodes);
+            root = insertIntoBST(root, newNodeData);
+            updateTextarea(treeToArray(root));
+            document.getElementById('newID').value = '';
+        }
+
+        function addNodeManual() {
+            const pId = document.getElementById('parentID').value.trim();
+            const dir = document.getElementById('childDir').value;
+            const newId = document.getElementById('newID').value.trim();
+            const newVal = document.getElementById('newVal').value.trim();
+
+            if (!pId || !newId) return alert("Zadejte ID.");
+            const pIdx = currentNodes.findIndex(n => n && n.id === pId);
+            if (pIdx === -1) return alert("Rodič nenalezen.");
+            
+            const cIdx = dir === 'left' ? (2 * pIdx + 1) : (2 * pIdx + 2);
+            if (currentNodes[cIdx] && !confirm("Přepsat?")) return;
+
+            const newNodes = [...currentNodes];
+            while (newNodes.length <= cIdx) newNodes.push(null);
+            newNodes[cIdx] = { id: newId, label: newId, value: newVal || undefined };
+            updateTextarea(newNodes);
+        }
+
+        function deleteNodeUI() {
+            const delId = document.getElementById('deleteID').value.trim();
+            if (!delId) return;
+            if (!currentNodes.some(n => n && n.id === delId)) return alert("Nenalezen.");
+            
+            let root = arrayToTree(currentNodes);
+            root = deleteNodeBST(root, delId);
+            updateTextarea(treeToArray(root));
+            document.getElementById('deleteID').value = '';
+        }
+
+        // --- TRAVERSALS ---
+        async function runTraversal(type) {
+            resetNodeStyles();
+            const res = document.getElementById('traversalResult');
+            res.textContent = "Běží animace...";
+            
+            const seq = [];
+            if (type === 'level') {
+                currentNodes.forEach((n, i) => { if(n) seq.push(i); });
+            } else {
+                function dfs(i) {
+                    if (i >= currentNodes.length || !currentNodes[i]) return;
+                    if (type === 'pre') seq.push(i);
+                    dfs(2 * i + 1);
+                    if (type === 'in') seq.push(i);
+                    dfs(2 * i + 2);
+                    if (type === 'post') seq.push(i);
+                }
+                dfs(0);
+            }
+            
+            const str = seq.map(i => currentNodes[i].id).join(" → ");
+            res.innerHTML = `<strong>${type}:</strong> ${str}`;
+            
+            for (let i of seq) {
+                const el = document.querySelector(`circle[data-index="${i}"]`);
+                if (el) {
+                    el.classList.add('node-highlight');
+                    await new Promise(r => setTimeout(r, 500));
+                    el.classList.remove('node-highlight');
+                    await new Promise(r => setTimeout(r, 100));
+                }
+            }
+        }
+
+        // --- RENDER ---
+        function renderTree(nodes, group) {
+            const depth = nodes.length > 0 ? Math.floor(Math.log2(nodes.length)) + 1 : 1;
+            const width = Math.max(800, Math.pow(2, depth-1) * 60);
+            const height = Math.max(600, depth * 80 + 100);
+            
+            // Note: SVG dimensions are set implicitly by content, we just draw inside the group
+            // We center the root at 0,0 conceptually, then shift
+            
+            const coords = [];
+            function calc(i, lvl, x, w) {
+                if (i >= nodes.length) return;
+                const y = lvl * 80 + 50;
+                coords[i] = { x, y };
+                calc(2 * i + 1, lvl + 1, x - w/2, w/2);
+                calc(2 * i + 2, lvl + 1, x + w/2, w/2);
+            }
+            calc(0, 0, width/2, width/4);
+
+            // Lines
+            for (let i = 1; i < nodes.length; i++) {
+                if (!nodes[i]) continue;
+                const p = Math.floor((i - 1) / 2);
+                if (nodes[p] && coords[p]) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", coords[p].x);
+                    l.setAttribute("y1", coords[p].y);
+                    l.setAttribute("x2", coords[i].x);
+                    l.setAttribute("y2", coords[i].y);
+                    l.setAttribute("stroke", "#cbd5e1");
+                    l.setAttribute("stroke-width", "2");
+                    group.appendChild(l);
+                }
+            }
+
+            // Nodes
+            for (let i = 0; i < nodes.length; i++) {
+                if (!nodes[i]) continue;
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                g.setAttribute("class", "cursor-pointer hover:opacity-80");
+                g.onclick = (e) => {
+                    e.stopPropagation(); // Don't trigger pan
+                    onNodeClick(nodes[i].id);
+                };
+
+                const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                c.setAttribute("cx", coords[i].x);
+                c.setAttribute("cy", coords[i].y);
+                c.setAttribute("r", 22);
+                c.setAttribute("fill", "#3b82f6");
+                c.setAttribute("stroke", "#1d4ed8");
+                c.setAttribute("stroke-width", "2");
+                c.setAttribute("data-index", i);
+                g.appendChild(c);
+
+                const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                t.setAttribute("x", coords[i].x);
+                t.setAttribute("y", coords[i].y);
+                t.setAttribute("text-anchor", "middle");
+                t.setAttribute("fill", "white");
+                t.setAttribute("font-weight", "bold");
+                t.setAttribute("pointer-events", "none");
+                t.setAttribute("dy", nodes[i].value ? "-0.3em" : ".3em");
+                t.setAttribute("font-size", nodes[i].value ? "11px" : "13px");
+                t.textContent = nodes[i].id;
+                g.appendChild(t);
+
+                if (nodes[i].value) {
+                    const tv = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    tv.setAttribute("x", coords[i].x);
+                    tv.setAttribute("y", coords[i].y);
+                    tv.setAttribute("dy", "0.9em");
+                    tv.setAttribute("text-anchor", "middle");
+                    tv.setAttribute("fill", "#bfdbfe");
+                    tv.setAttribute("font-size", "10px");
+                    tv.setAttribute("pointer-events", "none");
+                    tv.textContent = nodes[i].value;
+                    g.appendChild(tv);
+                }
+                group.appendChild(g);
+            }
+        }
+    </script>
+</body>
+</html>

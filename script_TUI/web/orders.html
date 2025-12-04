@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vizualizace Průchodu Grafem</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        canvas { background-color: #ffffff; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        .log-item { transition: all 0.2s; border-left: 4px solid transparent; }
+        .log-item.active { background-color: #e0e7ff; border-left-color: #4f46e5; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-slate-800">
+
+    <!-- Header -->
+    <header class="bg-indigo-900 text-white p-4 shadow-md flex justify-between items-center z-10">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-share-nodes text-2xl text-indigo-300"></i>
+            <div>
+                <h1 class="text-xl font-bold">Graph Explorer</h1>
+                <p class="text-xs text-indigo-300">BFS • DFS • Pre/In/Post-order Simulator</p>
+            </div>
+        </div>
+        <div class="text-sm bg-indigo-800 px-3 py-1 rounded">
+            Nodes: <span id="node-count">0</span> | Edges: <span id="edge-count">0</span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Left Panel: Input & Controls -->
+        <aside class="w-1/4 min-w-[300px] max-w-[400px] bg-white border-r flex flex-col shadow-lg z-10">
+            <!-- Graph Definition -->
+            <div class="p-4 border-b flex-1 flex flex-col min-h-0">
+                <div class="flex flex-wrap justify-between items-center mb-2 gap-2">
+                    <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">Definice grafu</label>
+                    <div class="flex gap-2">
+                         <button onclick="loadExample(DEFAULT_INPUT)" class="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-50">TVŮJ GRAF</button>
+                         <button onclick="loadExample(SIMPLE_INPUT)" class="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-50">JEDNODUCHÝ</button>
+                    </div>
+                </div>
+                <textarea id="graph-input" class="flex-1 w-full p-3 text-sm font-mono border border-slate-300 rounded bg-white shadow-inner text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none resize-none" spellcheck="false" placeholder="u A; (uzel A)&#10;h A > B 10; (orientovaná)&#10;h A - B 10; (neorientovaná)"></textarea>
+                <div id="parse-error" class="hidden text-xs text-red-500 mt-1 font-bold">Chyba: Žádné platné uzly nenalezeny.</div>
+                <button onclick="parseAndDraw()" class="mt-3 w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold transition shadow">
+                    <i class="fa-solid fa-rotate mr-2"></i> Vykreslit Graf
+                </button>
+            </div>
+
+            <!-- Algorithm Selection -->
+            <div class="p-4 bg-slate-50 border-t">
+                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Algoritmus & Start</label>
+                
+                <div class="mb-3">
+                    <select id="start-node-select" class="w-full p-2 border rounded bg-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <option value="" disabled selected>Vyber počáteční uzel</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <button onclick="setAlgorithm('BFS')" class="algo-btn px-3 py-2 border rounded hover:bg-indigo-50 text-sm font-medium transition active-algo ring-2 ring-indigo-500 bg-indigo-50 text-indigo-700" data-algo="BFS">BFS (Šířka)</button>
+                    <button onclick="setAlgorithm('DFS')" class="algo-btn px-3 py-2 border rounded hover:bg-indigo-50 text-sm font-medium transition" data-algo="DFS">DFS (Hloubka)</button>
+                    <button onclick="setAlgorithm('PRE')" class="algo-btn px-3 py-2 border rounded hover:bg-indigo-50 text-sm font-medium transition" data-algo="PRE">Preorder</button>
+                    <button onclick="setAlgorithm('POST')" class="algo-btn px-3 py-2 border rounded hover:bg-indigo-50 text-sm font-medium transition" data-algo="POST">Postorder</button>
+                </div>
+                <button onclick="setAlgorithm('IN')" class="algo-btn w-full px-3 py-2 border rounded hover:bg-indigo-50 text-sm font-medium transition mb-2" data-algo="IN">Inorder (Heuristika)</button>
+            </div>
+        </aside>
+
+        <!-- Center: Visualization Canvas -->
+        <section class="flex-1 relative bg-slate-100 flex flex-col">
+            <!-- Legend -->
+            <div class="absolute top-4 left-4 bg-white/90 backdrop-blur p-3 rounded shadow border z-0 pointer-events-none">
+                <div class="flex items-center gap-2 mb-1"><div class="w-3 h-3 rounded-full border-2 border-slate-400 bg-white"></div> <span class="text-xs text-slate-600">Nenavštíveno</span></div>
+                <div class="flex items-center gap-2 mb-1"><div class="w-3 h-3 rounded-full border-2 border-orange-500 bg-orange-100"></div> <span class="text-xs text-slate-600">Aktivní (Zpracovává se)</span></div>
+                <div class="flex items-center gap-2"><div class="w-3 h-3 rounded-full border-2 border-indigo-600 bg-indigo-500"></div> <span class="text-xs text-slate-600">Hotovo (Výstup)</span></div>
+            </div>
+
+            <canvas id="graph-canvas" class="flex-1 w-full h-full"></canvas>
+
+            <!-- Playback Controls -->
+            <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-xl p-2 px-6 flex items-center gap-4 border">
+                <button onclick="resetAlgo()" class="text-slate-500 hover:text-slate-800" title="Reset"><i class="fa-solid fa-arrow-rotate-left"></i></button>
+                <div class="h-6 w-px bg-slate-200"></div>
+                <button onclick="stepBack()" class="text-slate-700 hover:text-indigo-600 text-lg disabled:opacity-30" id="btn-back"><i class="fa-solid fa-backward-step"></i></button>
+                <button onclick="togglePlay()" class="w-12 h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-lg transition transform hover:scale-105" id="btn-play">
+                    <i class="fa-solid fa-play ml-1"></i>
+                </button>
+                <button onclick="stepForward()" class="text-slate-700 hover:text-indigo-600 text-lg disabled:opacity-30" id="btn-next"><i class="fa-solid fa-forward-step"></i></button>
+                <div class="h-6 w-px bg-slate-200"></div>
+                <div class="flex flex-col w-24">
+                    <label class="text-[10px] text-slate-400 font-bold">RYCHLOST</label>
+                    <input type="range" min="100" max="2000" value="800" class="h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" id="speed-range">
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Panel: Logs & Stack -->
+        <aside class="w-1/4 min-w-[250px] bg-white border-l flex flex-col shadow-lg z-10">
+            <div class="p-3 bg-slate-50 border-b">
+                <h2 class="text-sm font-bold text-slate-600 uppercase mb-2">Výstupní Sekvence</h2>
+                <div id="output-sequence" class="w-full bg-white border border-indigo-200 rounded p-2 text-indigo-700 font-mono text-sm break-words shadow-sm min-h-[3rem]">
+                    Resetováno...
+                </div>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-0" id="log-container">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-slate-500 font-semibold sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th class="p-2 w-10 text-center">#</th>
+                            <th class="p-2">Akce</th>
+                            <th class="p-2">Popis</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-body" class="text-slate-700">
+                        <!-- Logs go here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="p-3 border-t bg-slate-50 h-32 flex flex-col">
+                <h3 class="text-xs font-bold text-slate-500 uppercase mb-1">Zásobník / Fronta (Stack/Queue)</h3>
+                <div id="struct-viz" class="flex-1 bg-white border rounded p-2 overflow-x-auto whitespace-nowrap font-mono text-xs flex items-center gap-2">
+                    <span class="text-slate-400">[]</span>
+                </div>
+            </div>
+        </aside>
+
+    </main>
+
+<script>
+/** * KONFIGURACE A DATA 
+ */
+
+// Původní jednoduchý graf
+const SIMPLE_INPUT = `u A;
+u B;
+u C;
+u D;
+u E;
+u F;
+h S > D 30;
+h S > E 20;
+h D > F 10;
+h E > F 10;`;
+
+// Tvůj velký graf
+const DEFAULT_INPUT = `u A;
+u B;
+u C;
+u D;
+u E;
+u F;
+u G;
+u H;
+u I;
+u J;
+u K;
+u L;
+u M;
+u N;
+u O;
+u P;
+u Q;
+u R;
+u S;
+u T;
+u U;
+u V;
+u W;
+u X;
+u Y;
+u Z;
+h A - B 24;
+h A - C 31;
+h B - D 19;
+h B - C 26;
+h C - D 15;
+h C - G 18;
+h D - F 9;
+h D - E 12;
+h D - G 23;
+h E - F 18;
+h F - I 4;
+h G - F 6;
+h G - I 17;
+h H - I 18;
+h H - J 19;
+h H - G 20;
+h H - K 27;
+h I - K 20;
+h I - L 21;
+h J - K 12;
+h L - V 9;
+h L - M 17;
+h M - U 6;
+h M - V 22;
+h N - M 4;
+h O - N 9;
+h O - P 12;
+h P - N 3;
+h P - U 4;
+h P - R 15;
+h Q - S 20;
+h R - T 11;
+h R - Q 13;
+h R - U 15;
+h R - S 19;
+h T - S 12;
+h U - X 12;
+h U - T 15;
+h U - V 21;
+h V - X 19;
+h W - X 16;
+h X - T 3;
+h X - Y 23;
+h Y - W 13;
+h Z - V 13;`;
+
+// Globální stav
+let nodes = {}; // Map: id -> {id, x, y, neighbors: []}
+let edges = []; // Array: {source, target, weight, type}
+let simulationId = null;
+let currentAlgo = 'BFS';
+let animationState = {
+    generator: null,
+    steps: [],     // Historie kroků pro krokování zpět
+    currentStepIndex: -1,
+    isPlaying: false,
+    intervalId: null,
+    visited: new Set(),
+    activeNode: null,
+    queueStack: []
+};
+
+// Canvas
+const canvas = document.getElementById('graph-canvas');
+const ctx = canvas.getContext('2d');
+let transform = { x: 0, y: 0, k: 1 }; // Pan & Zoom
+let isDragging = false;
+let lastMouse = { x: 0, y: 0 };
+let draggedNode = null;
+
+/**
+ * PARSOVÁNÍ VSTUPU
+ */
+function loadExample(data) {
+    document.getElementById('graph-input').value = data;
+    parseAndDraw();
+}
+
+function parseAndDraw() {
+    stopAnimation();
+    const input = document.getElementById('graph-input').value;
+    nodes = {};
+    edges = [];
+    
+    const lines = input.split('\n');
+    const nodeRegex = /^u\s+([a-zA-Z0-9*]+)\s*;/;
+    // Regex pro hrany: zachytí "h A > B 10;", "h A - B 10;" i "h A < B 10 :hX;"
+    const edgeRegex = /^h\s+([a-zA-Z0-9*]+)\s*([<>-])\s*([a-zA-Z0-9*]+)\s*(\d+)?(?:\s*:[a-zA-Z0-9]+)?\s*;/;
+
+    lines.forEach(line => {
+        line = line.trim();
+        if(!line) return;
+
+        // Parse Node
+        let nodeMatch = line.match(nodeRegex);
+        if (nodeMatch) {
+            const id = nodeMatch[1];
+            if (!nodes[id]) {
+                nodes[id] = { 
+                    id, 
+                    x: Math.random() * canvas.width, 
+                    y: Math.random() * canvas.height, 
+                    neighbors: [] 
+                };
+            }
+        }
+
+        // Parse Edge
+        let edgeMatch = line.match(edgeRegex);
+        if (edgeMatch) {
+            let sourceId = edgeMatch[1];
+            const operator = edgeMatch[2]; // >, < nebo -
+            let targetId = edgeMatch[3];
+            const weight = edgeMatch[4] ? parseInt(edgeMatch[4]) : null;
+
+            // Pokud je šipka obrácená, prohoďme směr hrany
+            if (operator === '<') {
+                [sourceId, targetId] = [targetId, sourceId];
+            }
+
+            // Ensure nodes exist even if implicit
+            if (!nodes[sourceId]) nodes[sourceId] = { id: sourceId, x: Math.random() * 800, y: Math.random() * 600, neighbors: [] };
+            if (!nodes[targetId]) nodes[targetId] = { id: targetId, x: Math.random() * 800, y: Math.random() * 600, neighbors: [] };
+
+            const edgeType = operator === '-' ? 'undirected' : 'directed';
+
+            // Add edge for drawing
+            edges.push({ source: sourceId, target: targetId, weight, type: edgeType });
+            
+            // Add neighbor for source
+            nodes[sourceId].neighbors.push({ target: targetId, weight });
+
+            // If undirected, add neighbor for target too
+            if (operator === '-') {
+                nodes[targetId].neighbors.push({ target: sourceId, weight });
+            }
+        }
+    });
+
+    // Kontrola, zda máme data
+    const nodeCount = Object.keys(nodes).length;
+    const errorMsg = document.getElementById('parse-error');
+    if (nodeCount === 0) {
+        errorMsg.classList.remove('hidden');
+    } else {
+        errorMsg.classList.add('hidden');
+    }
+
+    // Sort neighbors alphabetically for deterministic behavior
+    Object.values(nodes).forEach(n => {
+        n.neighbors.sort((a, b) => a.target.localeCompare(b.target));
+    });
+
+    updateStats();
+    populateStartSelect();
+    initPhysics();
+}
+
+function updateStats() {
+    document.getElementById('node-count').innerText = Object.keys(nodes).length;
+    document.getElementById('edge-count').innerText = edges.length;
+}
+
+function populateStartSelect() {
+    const select = document.getElementById('start-node-select');
+    select.innerHTML = '<option value="" disabled selected>Vyber počáteční uzel</option>';
+    const keys = Object.keys(nodes).sort();
+    keys.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.innerText = id;
+        select.appendChild(opt);
+    });
+    // Vyber první uzel automaticky, pokud nic není vybráno
+    if (keys.length > 0) {
+        select.value = keys[0];
+    }
+}
+
+/**
+ * FYZIKÁLNÍ SIMULACE (Force Directed Graph)
+ */
+function initPhysics() {
+    if (simulationId) cancelAnimationFrame(simulationId);
+    
+    // Rozmístění do kruhu pro hezký start
+    const nodeKeys = Object.keys(nodes);
+    const radius = Math.min(canvas.width, canvas.height) / 3;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    nodeKeys.forEach((key, i) => {
+        const angle = (i / nodeKeys.length) * 2 * Math.PI;
+        nodes[key].x = centerX + radius * Math.cos(angle);
+        nodes[key].y = centerY + radius * Math.sin(angle);
+        nodes[key].vx = 0;
+        nodes[key].vy = 0;
+    });
+
+    transform = { x: 0, y: 0, k: 1 };
+
+    let iteration = 0;
+    function step() {
+        if (iteration < 300) { 
+            applyForces();
+            iteration++;
+        }
+        draw();
+        simulationId = requestAnimationFrame(step);
+    }
+    step();
+}
+
+function applyForces() {
+    const k = 120; // Délka pružiny
+    const repulsion = 80000;
+    const centerAttraction = 0.04;
+
+    const nodeArray = Object.values(nodes);
+
+    // Repulsion (Odpuzování)
+    for (let i = 0; i < nodeArray.length; i++) {
+        for (let j = i + 1; j < nodeArray.length; j++) {
+            let n1 = nodeArray[i];
+            let n2 = nodeArray[j];
+            let dx = n1.x - n2.x;
+            let dy = n1.y - n2.y;
+            let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            let force = repulsion / (dist * dist);
+            
+            let fx = (dx / dist) * force;
+            let fy = (dy / dist) * force;
+
+            n1.vx += fx;
+            n1.vy += fy;
+            n2.vx -= fx;
+            n2.vy -= fy;
+        }
+    }
+
+    // Attraction (Přitahování hran)
+    edges.forEach(e => {
+        let n1 = nodes[e.source];
+        let n2 = nodes[e.target];
+        let dx = n1.x - n2.x;
+        let dy = n1.y - n2.y;
+        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        let force = (dist * dist) / k; 
+
+        let fx = (dx / dist) * force;
+        let fy = (dy / dist) * force;
+
+        n1.vx -= fx;
+        n1.vy -= fy;
+        n2.vx += fx;
+        n2.vy += fy;
+    });
+
+    // Center Gravity (Přitahování do středu)
+    nodeArray.forEach(n => {
+        if (n === draggedNode) return; 
+
+        n.vx -= (n.x - canvas.width/2) * centerAttraction;
+        n.vy -= (n.y - canvas.height/2) * centerAttraction;
+
+        // Tření
+        n.vx *= 0.85;
+        n.vy *= 0.85;
+
+        // Limit rychlosti
+        const speed = Math.sqrt(n.vx*n.vx + n.vy*n.vy);
+        if(speed > 20) {
+            n.vx = (n.vx/speed)*20;
+            n.vy = (n.vy/speed)*20;
+        }
+
+        n.x += n.vx;
+        n.y += n.vy;
+    });
+}
+
+/**
+ * VYKRESLOVÁNÍ (Canvas)
+ */
+function draw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.setTransform(transform.k, 0, 0, transform.k, transform.x, transform.y);
+
+    // Vykreslení hran
+    edges.forEach(e => {
+        const source = nodes[e.source];
+        const target = nodes[e.target];
+        drawArrow(source.x, source.y, target.x, target.y, e.weight, e.type);
+    });
+
+    // Vykreslení uzlů
+    Object.values(nodes).forEach(n => {
+        drawNode(n);
+    });
+}
+
+function drawArrow(x1, y1, x2, y2, weight, type) {
+    const headlen = 10;
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    
+    // Zkrácení čáry, aby končila u okraje uzlu (radius cca 20)
+    const r = 22;
+    const endX = x2 - r * Math.cos(angle);
+    const endY = y2 - r * Math.sin(angle);
+    const startX = x1 + r * Math.cos(angle);
+    const startY = y1 + r * Math.sin(angle);
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Šipka pouze pro orientované
+    if (type !== 'undirected') {
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - headlen * Math.cos(angle - Math.PI / 6), endY - headlen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(endX - headlen * Math.cos(angle + Math.PI / 6), endY - headlen * Math.sin(angle + Math.PI / 6));
+        ctx.fillStyle = "#94a3b8";
+        ctx.fill();
+    }
+
+    // Váha
+    if (weight !== null) {
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+        ctx.fillStyle = "#64748b";
+        ctx.font = "10px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(midX, midY, 9, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+        
+        ctx.fillText(weight, midX, midY);
+    }
+}
+
+function drawNode(n) {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 20, 0, 2 * Math.PI);
+    
+    // Barvení podle stavu animace
+    if (animationState.activeNode === n.id) {
+        ctx.fillStyle = "#fed7aa"; // Oranžová - Aktivní
+        ctx.strokeStyle = "#f97316";
+        ctx.lineWidth = 3;
+    } else if (animationState.visited.has(n.id)) {
+        ctx.fillStyle = "#6366f1"; // Fialová - Hotovo
+        ctx.strokeStyle = "#4338ca";
+        ctx.lineWidth = 2;
+    } else {
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 2;
+    }
+    
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = "bold 14px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = animationState.visited.has(n.id) ? "#ffffff" : "#1e293b";
+    ctx.fillText(n.id, n.x, n.y);
+}
+
+/**
+ * ALGORITMY (Generátory)
+ */
+function createStep(type, nodeId, desc, structure) {
+    return { type, nodeId, desc, structure: [...structure] };
+}
+
+function* bfsGen(startId) {
+    let queue = [startId];
+    let visited = new Set([startId]);
+    yield createStep('init', startId, `Start BFS v uzlu ${startId}`, queue);
+
+    while (queue.length > 0) {
+        let current = queue.shift();
+        yield createStep('visit', current, `Zpracování uzlu ${current}`, queue);
+
+        let neighbors = nodes[current] ? nodes[current].neighbors : [];
+        for (let edge of neighbors) {
+            if (!visited.has(edge.target)) {
+                visited.add(edge.target);
+                queue.push(edge.target);
+                yield createStep('queue', edge.target, `Uzel ${edge.target} přidán do fronty`, queue);
+            }
+        }
+    }
+    yield createStep('done', null, "Konec BFS", []);
+}
+
+function* dfsGen(startId) {
+    let stack = [startId];
+    let visited = new Set();
+    yield createStep('init', startId, `Start DFS v uzlu ${startId}`, stack);
+
+    while (stack.length > 0) {
+        let current = stack.pop();
+        if (!visited.has(current)) {
+            visited.add(current);
+            yield createStep('visit', current, `Navštíven uzel ${current}`, stack);
+
+            let neighbors = nodes[current] ? nodes[current].neighbors : [];
+            // Obrácené pořadí pro zásobník, aby se zpracovávaly zleva doprava
+            for (let i = neighbors.length - 1; i >= 0; i--) {
+                let neighbor = neighbors[i].target;
+                if (!visited.has(neighbor)) {
+                    stack.push(neighbor);
+                    yield createStep('stack', neighbor, `Uzel ${neighbor} přidán na zásobník`, stack);
+                }
+            }
+        }
+    }
+    yield createStep('done', null, "Konec DFS", []);
+}
+
+function* preorderGen(startId) {
+    let stack = [startId];
+    let visited = new Set();
+    yield createStep('init', startId, `Start Preorder`, stack);
+
+    while(stack.length > 0) {
+        let current = stack.pop();
+        if(!visited.has(current)) {
+            visited.add(current);
+            yield createStep('visit', current, `Výpis (Pre): ${current}`, stack);
+            
+            let neighbors = nodes[current] ? nodes[current].neighbors : [];
+            for (let i = neighbors.length - 1; i >= 0; i--) {
+                let neighbor = neighbors[i].target;
+                if (!visited.has(neighbor)) {
+                    stack.push(neighbor);
+                }
+            }
+        }
+    }
+    yield createStep('done', null, "Hotovo", []);
+}
+
+function* postorderGen(startId) {
+    let visited = new Set();
+    let callStack = [{node: startId, index: 0, parent: null}]; 
+    yield createStep('init', startId, `Start Postorder`, [startId]);
+
+    while(callStack.length > 0) {
+        let frame = callStack[callStack.length - 1];
+        let u = frame.node;
+        
+        if (frame.index === 0) {
+             if(visited.has(u)) {
+                 callStack.pop();
+                 continue;
+             }
+             visited.add(u);
+             yield createStep('scan', u, `Vstup do uzlu ${u}`, callStack.map(f => f.node));
+        }
+
+        let neighbors = nodes[u] ? nodes[u].neighbors : [];
+        let nextChild = null;
+        while(frame.index < neighbors.length) {
+            let neighbor = neighbors[frame.index].target;
+            frame.index++;
+            if (!visited.has(neighbor)) {
+                nextChild = neighbor;
+                break;
+            }
+        }
+
+        if (nextChild) {
+            callStack.push({node: nextChild, index: 0, parent: u});
+        } else {
+            yield createStep('visit', u, `Výpis (Post): ${u}`, callStack.map(f => f.node));
+            callStack.pop();
+        }
+    }
+    yield createStep('done', null, "Hotovo", []);
+}
+
+function* inorderGen(startId) {
+    // Heuristika pro obecný graf: Levé dítě -> Root -> Ostatní děti
+    let visited = new Set();
+    let callStack = [{node: startId, state: 0}]; 
+    yield createStep('init', startId, `Start Inorder`, [startId]);
+
+    while(callStack.length > 0) {
+        let frame = callStack[callStack.length - 1];
+        let u = frame.node;
+        let neighbors = nodes[u] ? nodes[u].neighbors : [];
+        
+        if (frame.state === 0) {
+            visited.add(u); 
+            let firstChild = null;
+            for(let i=0; i<neighbors.length; i++) {
+                if(!visited.has(neighbors[i].target)) {
+                    firstChild = neighbors[i].target;
+                    frame.childIndex = i;
+                    break;
+                }
+            }
+            frame.state = 1;
+            if (firstChild) {
+                yield createStep('scan', u, `Do levé větve (${firstChild})`, callStack.map(f=>f.node));
+                callStack.push({node: firstChild, state: 0});
+            }
+        } 
+        else if (frame.state === 1) {
+            yield createStep('visit', u, `Výpis (In): ${u}`, callStack.map(f=>f.node));
+            
+            let foundNext = false;
+            let start = (frame.childIndex !== undefined ? frame.childIndex + 1 : 0);
+             for(let i=start; i<neighbors.length; i++) {
+                let neighbor = neighbors[i].target;
+                if(!visited.has(neighbor)) {
+                    frame.childIndex = i;
+                    foundNext = true;
+                    yield createStep('scan', u, `Do pravé větve (${neighbor})`, callStack.map(f=>f.node));
+                    callStack.push({node: neighbor, state: 0});
+                    break; 
+                }
+            }
+            if (!foundNext) frame.state = 2;
+        } 
+        else {
+            callStack.pop();
+        }
+    }
+    yield createStep('done', null, "Hotovo", []);
+}
+
+/**
+ * OVLÁDÁNÍ ANIMACE
+ */
+function setAlgorithm(algo) {
+    currentAlgo = algo;
+    document.querySelectorAll('.algo-btn').forEach(b => {
+        b.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+        if(b.dataset.algo === algo) {
+            b.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+        }
+    });
+    resetAlgo();
+}
+
+function resetAlgo() {
+    stopAnimation();
+    animationState.steps = [];
+    animationState.currentStepIndex = -1;
+    animationState.visited = new Set();
+    animationState.activeNode = null;
+    animationState.queueStack = [];
+    
+    document.getElementById('log-body').innerHTML = '';
+    document.getElementById('struct-viz').innerHTML = '<span class="text-slate-400">[]</span>';
+    document.getElementById('output-sequence').innerText = 'Resetováno...';
+    
+    const startNode = document.getElementById('start-node-select').value;
+    if (!startNode) return;
+
+    if (currentAlgo === 'BFS') animationState.generator = bfsGen(startNode);
+    if (currentAlgo === 'DFS') animationState.generator = dfsGen(startNode);
+    if (currentAlgo === 'PRE') animationState.generator = preorderGen(startNode);
+    if (currentAlgo === 'POST') animationState.generator = postorderGen(startNode);
+    if (currentAlgo === 'IN') animationState.generator = inorderGen(startNode);
+
+    let gen = animationState.generator;
+    let result = gen.next();
+    while(!result.done) {
+        animationState.steps.push(result.value);
+        result = gen.next();
+    }
+}
+
+function togglePlay() {
+    const btn = document.getElementById('btn-play');
+    if (animationState.isPlaying) {
+        stopAnimation();
+        btn.innerHTML = '<i class="fa-solid fa-play ml-1"></i>';
+    } else {
+        animationState.isPlaying = true;
+        btn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+        playLoop();
+    }
+}
+
+function stopAnimation() {
+    animationState.isPlaying = false;
+    clearTimeout(animationState.intervalId);
+    document.getElementById('btn-play').innerHTML = '<i class="fa-solid fa-play ml-1"></i>';
+}
+
+function playLoop() {
+    if (!animationState.isPlaying) return;
+    stepForward();
+    if (animationState.currentStepIndex < animationState.steps.length - 1) {
+        const speed = 2100 - document.getElementById('speed-range').value;
+        animationState.intervalId = setTimeout(playLoop, speed);
+    } else {
+        stopAnimation();
+    }
+}
+
+function stepForward() {
+    if (animationState.currentStepIndex >= animationState.steps.length - 1) return;
+    animationState.currentStepIndex++;
+    applyStep(animationState.steps[animationState.currentStepIndex]);
+    scrollToLog();
+}
+
+function stepBack() {
+    if (animationState.currentStepIndex < 0) return;
+    const targetIdx = animationState.currentStepIndex - 1;
+    animationState.visited = new Set();
+    animationState.activeNode = null;
+    document.getElementById('output-sequence').innerText = '';
+    for(let i=0; i<=targetIdx; i++) {
+        applyStepVisualsOnly(animationState.steps[i]);
+    }
+    animationState.currentStepIndex = targetIdx;
+    updateLogUI();
+}
+
+function applyStep(step) {
+    applyStepVisualsOnly(step);
+    addLogEntry(step, animationState.currentStepIndex);
+    updateLogUI();
+}
+
+function applyStepVisualsOnly(step) {
+    animationState.queueStack = step.structure;
+    if (step.type === 'visit') {
+        animationState.visited.add(step.nodeId);
+        animationState.activeNode = step.nodeId;
+        const out = document.getElementById('output-sequence');
+        if (out.innerText === 'Resetováno...') out.innerText = '';
+        if (!out.innerText.includes(step.nodeId + " ")) out.innerText += step.nodeId + " → ";
+    } else if (step.type === 'scan' || step.type === 'init') {
+        animationState.activeNode = step.nodeId;
+    } else if (step.type === 'done') {
+        animationState.activeNode = null;
+    }
+    
+    const structDiv = document.getElementById('struct-viz');
+    if (step.structure.length === 0) {
+        structDiv.innerHTML = '<span class="text-slate-400">Empty</span>';
+    } else {
+        structDiv.innerHTML = step.structure.map(n => `<span class="bg-slate-200 px-2 py-1 rounded text-slate-700">${n}</span>`).join('<i class="fa-solid fa-arrow-right text-slate-300 text-[10px] mx-1"></i>');
+    }
+}
+
+function addLogEntry(step, index) {
+    const tbody = document.getElementById('log-body');
+    const row = document.createElement('tr');
+    row.className = `log-item border-b border-slate-100 hover:bg-slate-50`;
+    row.id = `log-${index}`;
+    let icon = '';
+    if(step.type === 'visit') icon = '<i class="fa-solid fa-check text-green-500"></i>';
+    if(step.type === 'queue' || step.type === 'stack') icon = '<i class="fa-solid fa-plus text-blue-400"></i>';
+    if(step.type === 'scan') icon = '<i class="fa-solid fa-eye text-orange-400"></i>';
+    row.innerHTML = `<td class="p-2 text-center text-xs text-slate-400 font-mono">${index + 1}</td><td class="p-2 text-xs font-bold">${step.type.toUpperCase()}</td><td class="p-2 text-xs flex items-center gap-2">${icon} ${step.desc}</td>`;
+    tbody.appendChild(row);
+}
+
+function updateLogUI() {
+    document.querySelectorAll('.log-item').forEach(el => el.classList.remove('active'));
+    const currentLog = document.getElementById(`log-${animationState.currentStepIndex}`);
+    if (currentLog) currentLog.classList.add('active');
+}
+
+function scrollToLog() {
+    const container = document.getElementById('log-container');
+    const currentLog = document.getElementById(`log-${animationState.currentStepIndex}`);
+    if (currentLog) currentLog.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/** INTERAKCE */
+canvas.addEventListener('mousedown', e => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left - transform.x) / transform.k;
+    const y = (e.clientY - rect.top - transform.y) / transform.k;
+    lastMouse = { x: e.clientX, y: e.clientY };
+    
+    const node = Object.values(nodes).find(n => Math.sqrt((n.x - x)**2 + (n.y - y)**2) < 20);
+    if (node) { draggedNode = node; isDragging = true; } 
+    else { isDragging = true; }
+});
+
+canvas.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    const dx = e.clientX - lastMouse.x;
+    const dy = e.clientY - lastMouse.y;
+    lastMouse = { x: e.clientX, y: e.clientY };
+
+    if (draggedNode) {
+        draggedNode.x += dx / transform.k;
+        draggedNode.y += dy / transform.k;
+        if (!simulationId) { let i=0; function s(){if(i++<10){applyForces();draw();requestAnimationFrame(s)}} s();}
+        draw();
+    } else {
+        transform.x += dx;
+        transform.y += dy;
+        draw();
+    }
+});
+
+canvas.addEventListener('mouseup', () => { isDragging = false; draggedNode = null; });
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const newK = transform.k + delta;
+    if (newK > 0.1 && newK < 5) { transform.k = newK; draw(); }
+});
+
+window.addEventListener('resize', () => {
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
+    draw();
+});
+
+window.onload = () => {
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
+    loadExample(DEFAULT_INPUT);
+};
+</script>
+</body>
+</html>

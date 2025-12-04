@@ -1,0 +1,5 @@
+Uzly cesty:
+A -> D
+Hrany:
+A -- D
+Celková vzdálenost: 0.005021885327334083

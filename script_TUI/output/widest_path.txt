@@ -1,0 +1,7 @@
+Uzly cesty:
+A -> C -> B -> N
+Hrany:
+A -- C
+C -- B
+B -- N
+Celková vzdálenost: 1.0

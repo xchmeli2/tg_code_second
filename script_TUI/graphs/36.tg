@@ -1,0 +1,16 @@
+u s;
+u A;
+u C;
+u t;
+u B;
+u C;
+u D;
+h s > A 5;
+h s > B 10;
+h B > A 6;
+h A > C 4;
+h A > D 5;
+h B > D 5;
+h C > D 6;
+h C > t 4;
+h D > t 12;

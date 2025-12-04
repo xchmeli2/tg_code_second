@@ -1,0 +1,17 @@
+u s;
+u A;
+u C;
+u t;
+u B;
+u C;
+u D;
+h s > A 100;
+h s > B 100;
+h A > B 1;
+h A > D 1;
+h A > C 100;
+h B > C 1;
+h B > D 100;
+h C > D 1;
+h C > t 100;
+h D > t 100;
